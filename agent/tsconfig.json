@@ -1,0 +1,6 @@
+{
+	"extends": "agents/tsconfig",
+	"compilerOptions": {},
+	"include": ["src/**/*", "env.d.ts", "vite.config.ts"],
+	"exclude": ["test", "vitest.config.mts"]
+}

@@ -1,0 +1,92 @@
+:root {
+	font-family:
+		Inter,
+		system-ui,
+		-apple-system,
+		Segoe UI,
+		Roboto,
+		sans-serif;
+	color: #0f172a;
+	background: #f8fafc;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+}
+
+.app {
+	max-width: 980px;
+	margin: 0 auto;
+	padding: 20px;
+}
+
+.card {
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	border-radius: 12px;
+	padding: 14px;
+}
+
+.row {
+	display: flex;
+	gap: 8px;
+}
+
+input,
+textarea {
+	width: 100%;
+	border: 1px solid #cbd5e1;
+	border-radius: 8px;
+	padding: 10px;
+	font: inherit;
+}
+
+button {
+	border: 0;
+	border-radius: 8px;
+	padding: 10px 12px;
+	background: #2563eb;
+	color: white;
+	cursor: pointer;
+}
+
+button:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.messages {
+	min-height: 380px;
+	max-height: 56vh;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.bubble {
+	max-width: 78%;
+	padding: 10px 12px;
+	border-radius: 10px;
+	white-space: pre-wrap;
+}
+
+.user {
+	margin-left: auto;
+	background: #1d4ed8;
+	color: #fff;
+}
+
+.assistant {
+	margin-right: auto;
+	background: #f1f5f9;
+}
+
+.muted {
+	color: #475569;
+	font-size: 13px;
+}
