@@ -1,0 +1,18 @@
+{
+	"name": "informs-uic-hackathon",
+	"private": true,
+	"description": "UIC INFORMS healthcare agent demo — Cloudflare Workers entry at agent-starter-main",
+	"type": "module",
+	"scripts": {
+		"install:agent": "npm install --prefix agent-starter-main",
+		"build": "npm run build --prefix agent-starter-main",
+		"deploy": "npm run deploy --prefix agent-starter-main",
+		"upload": "npm run versions:upload --prefix agent-starter-main",
+		"dev": "npm run dev --prefix agent-starter-main",
+		"dashboard:dev": "npm run dev --prefix dashboard",
+		"dashboard:build": "npm run build --prefix dashboard"
+	},
+	"engines": {
+		"node": ">=18"
+	}
+}

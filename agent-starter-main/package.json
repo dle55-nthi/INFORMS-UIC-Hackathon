@@ -13,7 +13,9 @@
   "scripts": {
     "dev": "vite dev",
     "start": "vite dev",
-    "deploy": "vite build && wrangler deploy",
+    "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "versions:upload": "npm run build && wrangler versions upload",
     "types": "wrangler types env.d.ts --include-runtime false",
     "format": "oxfmt --write .",
     "lint": "oxlint src/",
