@@ -291,6 +291,19 @@ function Chat() {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const toasts = useKumoToastManager();
+	const onChatTransportError = useCallback(
+		(err: Error) => {
+			console.error("Chat stream error:", err);
+			toasts.add({
+				title: "Assistant unavailable",
+				description:
+					err.message || "The reply could not be loaded. Try again shortly.",
+				variant: "error",
+				timeout: 8000
+			});
+		},
+		[toasts]
+	);
 	const [mcpState, setMcpState] = useState<MCPServersState>({
 		prompts: [],
 		resources: [],
@@ -381,7 +394,8 @@ function Chat() {
 		stop,
 		status
 	} = useAgentChat({
-		agent
+		agent,
+		onError: onChatTransportError
 	});
 
 	const isStreaming = status === "streaming" || status === "submitted";
@@ -792,11 +806,17 @@ function Chat() {
 
 								{/* Reasoning parts */}
 								{message.parts
-									.filter(
-										(part) =>
-											part.type === "reasoning" &&
-											(part as { text?: string }).text?.trim()
-									)
+									.filter((part) => {
+										if (part.type !== "reasoning") return false;
+										const r = part as {
+											text?: string;
+											state?: "streaming" | "done";
+										};
+										return (
+											(r.text != null && r.text.trim().length > 0) ||
+											r.state === "streaming"
+										);
+									})
 									.map((part, i) => {
 										const reasoning = part as {
 											type: "reasoning";
@@ -860,8 +880,17 @@ function Chat() {
 								{message.parts
 									.filter((part) => part.type === "text")
 									.map((part, i) => {
-										const text = (part as { type: "text"; text: string }).text;
-										if (!text) return null;
+										const p = part as {
+											type: "text";
+											text: string;
+											state?: "streaming" | "done";
+										};
+										const text = p.text ?? "";
+										const showTypingShell =
+											message.role === "assistant" &&
+											isLastAssistant &&
+											isStreaming &&
+											!text.trim();
 
 										if (isUser) {
 											const visible = stripCoordinatorPriorityForDisplay(text);
@@ -875,17 +904,27 @@ function Chat() {
 											);
 										}
 
+										if (!text.trim() && !showTypingShell) return null;
+
 										return (
 											<div key={i} className="flex justify-start">
 												<div className="max-w-[85%] rounded-2xl rounded-bl-md bg-kumo-base text-kumo-default leading-relaxed">
-													<Streamdown
-														className="sd-theme rounded-2xl rounded-bl-md p-3"
-														plugins={{ code }}
-														controls={false}
-														isAnimating={isLastAssistant && isStreaming}
-													>
-														{text}
-													</Streamdown>
+													{text.trim() ? (
+														<Streamdown
+															className="sd-theme rounded-2xl rounded-bl-md p-3"
+															plugins={{ code }}
+															controls={false}
+															isAnimating={isLastAssistant && isStreaming}
+														>
+															{text}
+														</Streamdown>
+													) : (
+														<div className="p-3">
+															<Text size="sm" variant="secondary">
+																Generating answer…
+															</Text>
+														</div>
+													)}
 												</div>
 											</div>
 										);

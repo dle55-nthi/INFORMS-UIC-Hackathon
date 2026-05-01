@@ -126,6 +126,7 @@ Key tables:
 - careplans: active when STOP IS NULL
 
 Rules:
+- Every assistant turn must include at least one short visible paragraph of plain-language analysis (not only tool calls, headers, or placeholders). If SQL returns nothing, say so explicitly.
 - Only write SQL SELECT statements
 - Always include a LIMIT clause in SQL
 - Never show raw JSON; format results as a table or concise summary
@@ -322,13 +323,6 @@ If the user asks to schedule a task, use the schedule tool.`,
 							unit: "celsius"
 						};
 					}
-				}),
-
-				// Client-side tool: no execute function — the browser handles it
-				getUserTimezone: tool({
-					description:
-						"Get the user's timezone from their browser. Use this when you need to know the user's local time.",
-					inputSchema: z.object({})
 				}),
 
 				// Approval tool: requires user confirmation before executing
