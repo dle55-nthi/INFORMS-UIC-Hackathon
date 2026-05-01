@@ -1,0 +1,46 @@
+name: Cloudflare Worker (build + wrangler dry-run)
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  build-and-validate-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-starter-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: agent-starter-main/package-lock.json
+
+      - name: Install and build SPA + Worker
+        run: npm ci && npm run build
+
+      - name: Validate wrangler bundle (dry-run)
+        env:
+          WRANGLER_LOG: error
+        run: |
+          set -e
+          CONF="./dist/healthcare_manager_assistant/wrangler.json"
+          WD="./dist/healthcare_manager_assistant"
+          test -f "$CONF"
+          npx wrangler versions upload --dry-run --config "$CONF" --cwd "$WD"
+
+  validate-root-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root + build nested app + dry-run root wrangler.jsonc
+        run: npm ci && npm run build && npx wrangler versions upload --config ./wrangler.jsonc --dry-run

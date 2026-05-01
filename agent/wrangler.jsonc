@@ -1,4 +1,6 @@
 {
+	"_comment":
+		"Secondary package; production healthcare UI + Worker lives in ../agent-starter-main (see repo root wrangler.jsonc).",
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "agent",
 	"main": "src/server.ts",
