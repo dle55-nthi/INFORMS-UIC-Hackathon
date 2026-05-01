@@ -90,3 +90,81 @@ button:disabled {
 	color: #475569;
 	font-size: 13px;
 }
+
+.mode-section h3 {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0 0 8px;
+	color: #334155;
+}
+
+.mode-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+@media (max-width: 640px) {
+	.mode-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+.mode-option {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: 12px;
+	border-radius: 10px;
+	border: 2px solid #e2e8f0;
+	background: #fff;
+	color: #0f172a;
+	cursor: pointer;
+	font: inherit;
+	line-height: 1.35;
+	transition:
+		border-color 0.12s,
+		background 0.12s;
+}
+
+.mode-option:hover:not(:disabled) {
+	border-color: #94a3b8;
+	background: #f8fafc;
+}
+
+.mode-option.selected {
+	border-color: #2563eb;
+	background: #eff6ff;
+	box-shadow: 0 0 0 1px #2563eb33;
+}
+
+.mode-option strong {
+	display: block;
+	font-size: 13px;
+	margin-bottom: 4px;
+}
+
+.mode-option span {
+	font-size: 12px;
+	color: #475569;
+	font-weight: 400;
+}
+
+.scope-hint {
+	font-size: 12px;
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid #e2e8f0;
+}
+
+.form-warning {
+	color: #b91c1c;
+	font-size: 13px;
+	margin: 8px 0 0;
+}
+
+.patient-followup-prompt {
+	margin: 0 0 8px;
+	font-size: 14px;
+	color: #0f172a;
+}

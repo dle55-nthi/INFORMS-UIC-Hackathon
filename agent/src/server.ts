@@ -1,5 +1,5 @@
 import { createWorkersAI } from "workers-ai-provider";
-import { callable, routeAgentRequest, type Schedule } from "agents";
+import { routeAgentRequest, type Schedule } from "agents";
 import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
@@ -45,48 +45,6 @@ export class ChatAgent extends AIChatAgent<Env> {
 		};
 	}
 
-	@callable()
-	async resolvePatientCredential(fullName: string) {
-		const cleaned = fullName.trim().toLowerCase();
-		const parts = cleaned.split(/\s+/).filter(Boolean);
-		const firstLike = parts[0] ?? cleaned;
-		const lastLike = parts.length > 1 ? parts[parts.length - 1] : "";
-
-		const searchSql = lastLike
-			? `SELECT id AS patient, first, last, birthdate, gender, race, ethnicity, income,
-                ed_inpatient_total_cost, ed_visits, inpatient_visits,
-                chronic_condition_count, has_active_careplan
-         FROM patient_summary
-         WHERE LOWER(first) LIKE '%${firstLike.replace(/'/g, "''")}%'
-           AND LOWER(last) LIKE '%${lastLike.replace(/'/g, "''")}%'
-         ORDER BY ed_inpatient_total_cost DESC
-         LIMIT 3`
-			: `SELECT id AS patient, first, last, birthdate, gender, race, ethnicity, income,
-                ed_inpatient_total_cost, ed_visits, inpatient_visits,
-                chronic_condition_count, has_active_careplan
-         FROM patient_summary
-         WHERE LOWER(first) LIKE '%${firstLike.replace(/'/g, "''")}%'
-            OR LOWER(last) LIKE '%${firstLike.replace(/'/g, "''")}%'
-         ORDER BY ed_inpatient_total_cost DESC
-         LIMIT 3`;
-
-		const search = await this.runQuery(searchSql);
-		const matches = search.results ?? [];
-		if (!search.success || matches.length === 0) {
-			return {
-				success: false,
-				message: "No matching patient found for this credential.",
-			};
-		}
-
-		return {
-			success: true,
-			message: "Patient context loaded.",
-			patient: matches[0],
-			alternatives: matches.slice(1),
-		};
-	}
-
 	async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
 		const workersai = createWorkersAI({ binding: this.env.AI });
 
@@ -98,13 +56,17 @@ export class ChatAgent extends AIChatAgent<Env> {
 
 You have access to a database of synthetic patients. Use queryDatabase whenever you need patient data.
 
+Intake (human-in-the-loop):
+- If the message begins with the literal prefix starting "[Manager scope: specific patient" (UI chose specific-patient mode), the line includes a non-empty patient name hint; lines after the prefix state what the manager wants from that person's data—address that request. Resolve the patient via queryDatabase (LIKE/LOWER); call getPatientFullHistory before conclusions about that person. Do NOT re-ask patient vs admin.
+- If it begins with "[Manager scope: population / administrative overview", treat as **admin** mode—aggregate on patient_summary etc.; skip getPatientFullHistory unless they name someone later.
+- If there is NO such prefix (paste-ins, integrations), infer scope from wording; if ambiguous, ask the patient-vs-admin choice once before SQL.
+
 Rules:
 - Only write SQL SELECT statements.
 - Always include a LIMIT clause in SQL.
 - Never show raw JSON; format results as tables or concise summaries.
 - Use LIKE and LOWER for name matching.
-- For authenticated sessions, call getPatientFullHistory before conclusions.
-- Drill into encounters, medications, procedures, and financial transactions.
+- Drill into encounters, medications, procedures, and financial transactions when relevant.
 - Identify cost concentration and potentially avoidable utilization patterns.
 - End with a plain-language care manager briefing and 2-3 follow-up questions.
 

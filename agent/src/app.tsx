@@ -3,19 +3,27 @@ import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { ChatAgent } from "./server";
 
-type AuthPatient = {
-	patient: string;
-	first: string;
-	last: string;
-	ed_inpatient_total_cost?: number;
-};
+type ManagerScope = "specific_patient" | "administrative";
+
+function scopePrefix(mode: ManagerScope, patientNameHint: string) {
+	if (mode === "specific_patient") {
+		const hint = patientNameHint.trim();
+		return `[Manager scope: specific patient | patient name hint: ${hint}]\n\n`;
+	}
+	return "[Manager scope: population / administrative overview]\n\n";
+}
+
+/** Same text the model sees; UI hides the scope banner for readability. */
+function displayUserText(raw: string) {
+	const strip = raw.replace(/^\[[\s\S]*?\]\n\n/, "").trim();
+	return strip || raw.trim();
+}
 
 export default function App() {
-	const [fullName, setFullName] = useState("");
-	const [credentialError, setCredentialError] = useState("");
-	const [credentialLoading, setCredentialLoading] = useState(false);
-	const [patient, setPatient] = useState<AuthPatient | null>(null);
 	const [draft, setDraft] = useState("");
+	const [managerScope, setManagerScope] = useState<ManagerScope | null>(null);
+	const [patientNameHint, setPatientNameHint] = useState("");
+	const [patientNameWarning, setPatientNameWarning] = useState("");
 
 	const agent = useAgent<ChatAgent>({ agent: "ChatAgent" });
 	const { messages, sendMessage, status } = useAgentChat({ agent });
@@ -28,98 +36,112 @@ export default function App() {
 		[messages],
 	);
 
-	async function loadPatientContext() {
-		if (!fullName.trim()) return;
-		setCredentialError("");
-		setCredentialLoading(true);
-		try {
-			const result = (await agent.stub.resolvePatientCredential(fullName)) as {
-				success?: boolean;
-				message?: string;
-				patient?: AuthPatient;
-			};
-			if (!result.success || !result.patient) {
-				setPatient(null);
-				setCredentialError(result.message ?? "Unable to load context for this credential.");
-				return;
-			}
-			setPatient(result.patient);
-			sendMessage({
-				role: "user",
-				parts: [
-					{
-						type: "text",
-						text:
-							`Patient context selected: ${result.patient.first} ${result.patient.last}\n` +
-							`PATIENT ID: ${result.patient.patient}\n` +
-							"Use this patient as the default context. Retrieve full history and explain cost drivers in plain language.",
-					},
-				],
-			});
-		} catch {
-			setCredentialError("Could not load patient context. Please try again.");
-		} finally {
-			setCredentialLoading(false);
-		}
-	}
-
 	function send() {
 		const text = draft.trim();
-		if (!text || !canChat) return;
+		if (!text || !canChat || managerScope === null) return;
+
+		if (managerScope === "specific_patient" && !patientNameHint.trim()) {
+			setPatientNameWarning(
+				"Please enter a patient name above (partial match is fine so we pull the right record).",
+			);
+			return;
+		}
+
+		setPatientNameWarning("");
 		setDraft("");
-		sendMessage({ role: "user", parts: [{ type: "text", text }] });
+		const body =
+			scopePrefix(managerScope, managerScope === "specific_patient" ? patientNameHint : "") + text;
+		sendMessage({ role: "user", parts: [{ type: "text", text: body }] });
 	}
+
+	const patientNameMissing = managerScope === "specific_patient" && !patientNameHint.trim();
+	const sendDisabled = !canChat || managerScope === null || !draft.trim() || patientNameMissing;
 
 	return (
 		<main className="app">
 			<h2>Cost Explainer Agent</h2>
 			<p className="muted">
-				Manager workflow: provide a patient credential (full name), then the agent fetches relevant
-				history for analysis.
+				Pick how you&apos;re working first—scope is bundled with each message so the analyst stays
+				aligned.
 			</p>
 
-			<section className="card" style={{ marginBottom: 12 }}>
-				<div className="row">
-					<input
-						placeholder="Enter patient credential (full name)"
-						value={fullName}
-						onChange={(e) => setFullName(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") void loadPatientContext();
+			<section className="card mode-section" style={{ marginBottom: 12 }}>
+				<h3>How are you working today?</h3>
+				<div className="mode-grid">
+					<button
+						type="button"
+						className={`mode-option ${managerScope === "specific_patient" ? "selected" : ""}`}
+						onClick={() => {
+							setManagerScope("specific_patient");
+							setPatientNameWarning("");
 						}}
-					/>
-					<button onClick={() => void loadPatientContext()} disabled={credentialLoading}>
-						{credentialLoading ? "Loading..." : "Load Context"}
+						disabled={isStreaming}
+					>
+						<strong>Specific patient</strong>
+						<span>Deep-dive one person—cost drivers, encounters, meds, claims.</span>
+					</button>
+					<button
+						type="button"
+						className={`mode-option ${managerScope === "administrative" ? "selected" : ""}`}
+						onClick={() => {
+							setManagerScope("administrative");
+							setPatientNameWarning("");
+						}}
+						disabled={isStreaming}
+					>
+						<strong>Overall / admin</strong>
+						<span>Population view—rankings, cohorts, patterns across patients.</span>
 					</button>
 				</div>
-				{credentialError && <p style={{ color: "#b91c1c" }}>{credentialError}</p>}
-				{patient && (
-					<div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
-						<div>
-							<strong>
-								Context: {patient.first} {patient.last}
-							</strong>
-							<div className="muted">
-								ID: {patient.patient} | ED/Inpatient Cost: $
-								{Number(patient.ed_inpatient_total_cost ?? 0).toLocaleString()}
-							</div>
-						</div>
-						<button
-							onClick={() => {
-								setPatient(null);
-								setCredentialError("");
-							}}
+				{managerScope === "specific_patient" && (
+					<div style={{ marginTop: 12 }}>
+						<label
+							className="muted"
+							htmlFor="patient-hint"
+							style={{ display: "block", marginBottom: 6 }}
 						>
-							Clear Context
-						</button>
+							Patient name <span style={{ color: "#b91c1c" }}>(required)</span>
+						</label>
+						<input
+							id="patient-hint"
+							placeholder="e.g. Lindsay Brekke or Giovanni385 Paucek755"
+							value={patientNameHint}
+							onChange={(e) => {
+								setPatientNameHint(e.target.value);
+								setPatientNameWarning("");
+							}}
+							disabled={isStreaming}
+							aria-invalid={Boolean(patientNameWarning)}
+							aria-describedby={
+								managerScope === "specific_patient" ? "patient-hint-help" : undefined
+							}
+						/>
+						<p id="patient-hint-help" className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+							Enter who you mean first. Names in this dataset often include numeric suffixes—partial
+							matches work.
+						</p>
+						{patientNameWarning ? <p className="form-warning">{patientNameWarning}</p> : null}
 					</div>
+				)}
+				{managerScope && (
+					<p className="scope-hint muted">
+						Selected:{" "}
+						<strong style={{ color: "#0f172a" }}>
+							{managerScope === "specific_patient" ? "Specific patient" : "Administrative overview"}
+						</strong>
+						. You can change this anytime; the next message carries the new scope.
+					</p>
 				)}
 			</section>
 
 			<section className="card messages">
 				{sortedMessages.length === 0 && (
-					<p className="muted">
-						Enter a credential above, then ask: "Why is this patient expensive?"
+					<p className="muted" style={{ margin: 0 }}>
+						{managerScope === "specific_patient"
+							? "Enter the patient’s name in the field above, then describe what you want from their data in the box below."
+							: managerScope === "administrative"
+								? "Ask a population question—e.g. top spenders, high ED utilizers, or patients without care plans."
+								: "Choose a work mode above to get started."}
 					</p>
 				)}
 				{sortedMessages.map((m) => {
@@ -128,24 +150,38 @@ export default function App() {
 						.map((p) => p.text)
 						.join("\n");
 					if (!text) return null;
+					const shown = m.role === "user" ? displayUserText(text) : text;
 					return (
 						<div key={m.id} className={`bubble ${m.role === "user" ? "user" : "assistant"}`}>
-							{text}
+							{shown}
 						</div>
 					);
 				})}
 			</section>
 
 			<section className="card" style={{ marginTop: 12 }}>
+				{managerScope === "specific_patient" && patientNameHint.trim() ? (
+					<p className="patient-followup-prompt">
+						<strong>What do you want from this person&apos;s data?</strong>
+					</p>
+				) : managerScope === "specific_patient" ? (
+					<p className="patient-followup-prompt muted">
+						Enter a patient name above—then tell us what you want from their record.
+					</p>
+				) : null}
 				<div className="row">
 					<textarea
 						rows={2}
 						placeholder={
-							patient
-								? "Ask about cost drivers, avoidable patterns, and next actions..."
-								: "The agent will ask for a patient credential if context is missing"
+							managerScope === null
+								? "Select a work mode above to enable sending…"
+								: managerScope === "specific_patient"
+									? patientNameHint.trim()
+										? "e.g. Explain ED/inpatient cost drivers, list active conditions, or flag reducible spend…"
+										: "Available after you enter a patient name…"
+									: "Ask for rankings, aggregates, cohorts, or practice-wide patterns…"
 						}
-						disabled={isStreaming}
+						disabled={isStreaming || managerScope === null || patientNameMissing}
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
 						onKeyDown={(e) => {
@@ -155,7 +191,7 @@ export default function App() {
 							}
 						}}
 					/>
-					<button onClick={send} disabled={!canChat || !draft.trim()}>
+					<button onClick={send} disabled={sendDisabled}>
 						Send
 					</button>
 				</div>
