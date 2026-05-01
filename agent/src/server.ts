@@ -12,6 +12,10 @@ import {
 } from "ai";
 import { z } from "zod";
 
+function escapeSqlString(s: string) {
+	return s.replace(/'/g, "''");
+}
+
 function inlineDataUrls(messages: ModelMessage[]): ModelMessage[] {
 	return messages.map((msg) => {
 		if (msg.role !== "user" || typeof msg.content === "string") return msg;
@@ -54,21 +58,33 @@ export class ChatAgent extends AIChatAgent<Env> {
 			}),
 			system: `You are a healthcare data analyst helping care coordinators at a value-based primary care practice.
 
-You have access to a database of synthetic patients. Use queryDatabase whenever you need patient data.
+Mission: HELP THE MANAGER (1) find the right patient or small set of patients, (2) pull what they need (summary and/or full record), then (3) answer their next questions until satisfied.
 
-Intake (human-in-the-loop):
-- If the message begins with the literal prefix starting "[Manager scope: specific patient" (UI chose specific-patient mode), the line includes a non-empty patient name hint; lines after the prefix state what the manager wants from that person's data—address that request. Resolve the patient via queryDatabase (LIKE/LOWER); call getPatientFullHistory before conclusions about that person. Do NOT re-ask patient vs admin.
-- If it begins with "[Manager scope: population / administrative overview", treat as **admin** mode—aggregate on patient_summary etc.; skip getPatientFullHistory unless they name someone later.
-- If there is NO such prefix (paste-ins, integrations), infer scope from wording; if ambiguous, ask the patient-vs-admin choice once before SQL.
+TOOLS — use in this pattern:
+- searchPatients: Prefer this when looking people up BY NAME/TEXT tokens, by cost/order lists, or to disambiguate Synthea names (numeric suffixes). Show the returned id, full name key fields briefly.
+- getPatientSnapshots: Compare several patients side-by-side (patient_summary metrics only)—after you have IDs from searchPatients or elsewhere.
+- getPatientFullHistory: Deep dive ONE patient BY ID—from patient_summary.id. Use ONE id per call; if comparing three people call it up to THREE times OR prioritize the top question first.
+- queryDatabase: Ad-hoc SQL when searchPatients filters are insufficient ( cohorts by condition text, payer, etc.—still SELECT-only, always LIMIT).
 
-Rules:
-- Only write SQL SELECT statements.
-- Always include a LIMIT clause in SQL.
-- Never show raw JSON; format results as tables or concise summaries.
-- Use LIKE and LOWER for name matching.
-- Drill into encounters, medications, procedures, and financial transactions when relevant.
-- Identify cost concentration and potentially avoidable utilization patterns.
-- End with a plain-language care manager briefing and 2-3 follow-up questions.
+If multiple rows match a name ask the manager to pick ONE id or tighten the name—unless they asked for a list.
+
+CONVERSATIONAL FOLLOW-UPS:
+- Maintain thread context—if they already searched someone, reuse that patient id unless they change topic.
+- After each substantive answer, offer BRIEF "you could also ask..." ideas (different angles: cost, meds, utilization, gaps).
+- Tone: practical for care managers—not clinical prescribing.
+
+Intake prefixes (from UI—do not contradict):
+- Prefix "[Manager scope: specific patient" + name hint → focus that person unless the question clearly needs a cohort.
+- Prefix "[Manager scope: population / administrative overview" → population/cohort framing; searchPatients can still locate examples.
+- Messages without prefixes: infer intent—usually start with searchPatients or queryDatabase for what they typed.
+
+Technical rules:
+- Only SELECT SQL in queryDatabase. Always LIMIT in queryDatabase calls.
+- Never dump raw JSON in your reply—tables or short summaries.
+- For name matching elsewhere use LIKE and LOWER; join keys—claims_transactions uses PATIENTID; other tables PATIENT equals patient_summary.id.
+
+End with plain-language takeaway + 2 follow-up prompts the manager might use next (they do not replace real medical decisions).
+
 
 ${getSchedulePrompt({ date: new Date() })}
 If the user asks to schedule a task, use the schedule tool.`,
@@ -77,8 +93,94 @@ If the user asks to schedule a task, use the schedule tool.`,
 				toolCalls: "before-last-2-messages",
 			}),
 			tools: {
+				searchPatients: tool({
+					description:
+						"Find candidate patients from patient_summary. Use FIRST when the manager mentions a partial name or wants a ranked list (e.g., highest ED+inpatient cost). Tokens match case-insensitive substrings.",
+					inputSchema: z.object({
+						firstContains: z.string().optional().describe("Substring of first name (optional)"),
+						lastContains: z.string().optional().describe("Substring of last name (optional)"),
+						textContainsAnywhere: z
+							.string()
+							.optional()
+							.describe(
+								"If set, match if this substring appears in first OR last (use when only one word is given)",
+							),
+						orderBy: z
+							.enum([
+								"ed_inpatient_total_cost_desc",
+								"ed_visits_desc",
+								"chronic_condition_count_desc",
+							])
+							.default("ed_inpatient_total_cost_desc")
+							.describe("Sort when listing multiple rows"),
+						limit: z.number().min(1).max(25).default(15),
+					}),
+					execute: async ({
+						firstContains,
+						lastContains,
+						textContainsAnywhere,
+						orderBy,
+						limit,
+					}) => {
+						const lim = Math.min(25, Math.max(1, limit));
+						const orderCol =
+							orderBy === "ed_visits_desc"
+								? "ed_visits DESC"
+								: orderBy === "chronic_condition_count_desc"
+									? "chronic_condition_count DESC"
+									: "ed_inpatient_total_cost DESC";
+						let where = "1=1";
+						if (textContainsAnywhere?.trim()) {
+							const q = `%${escapeSqlString(textContainsAnywhere.trim().toLowerCase())}%`;
+							where = `(LOWER(first) LIKE '${q}' OR LOWER(last) LIKE '${q}')`;
+						} else {
+							const parts: string[] = [];
+							if (firstContains?.trim()) {
+								const q = `%${escapeSqlString(firstContains.trim().toLowerCase())}%`;
+								parts.push(`LOWER(first) LIKE '${q}'`);
+							}
+							if (lastContains?.trim()) {
+								const q = `%${escapeSqlString(lastContains.trim().toLowerCase())}%`;
+								parts.push(`LOWER(last) LIKE '${q}'`);
+							}
+							if (parts.length > 0) where = parts.join(" AND ");
+						}
+						const sql = `SELECT id, first, last, birthdate, gender, race, ethnicity, income,
+                ed_inpatient_total_cost, ed_visits, inpatient_visits,
+                chronic_condition_count, has_active_careplan
+         FROM patient_summary
+         WHERE ${where}
+         ORDER BY ${orderCol}
+         LIMIT ${lim}`;
+						const res = await this.runQuery(sql);
+						return {
+							hint: "Use id as patient_summary.id/PATIENT; claims_transactions join PATIENTID = id",
+							results: res.results ?? [],
+							rowCount: (res.results ?? []).length,
+						};
+					},
+				}),
+				getPatientSnapshots: tool({
+					description:
+						"Load patient_summary columns for MULTIPLE ids—compare totals, ED visits, care plan flags without full history payloads.",
+					inputSchema: z.object({
+						patientIds: z.array(z.string()).min(1).max(12).describe("patient_summary.id values"),
+					}),
+					execute: async ({ patientIds }) => {
+						const ids = patientIds
+							.slice(0, 12)
+							.map((id) => `'${escapeSqlString(id)}'`)
+							.join(", ");
+						const sql = `SELECT *
+         FROM patient_summary
+         WHERE id IN (${ids})
+         LIMIT 12`;
+						return (await this.runQuery(sql)) as object;
+					},
+				}),
 				queryDatabase: tool({
-					description: "Execute SQL SELECT against the healthcare dataset.",
+					description:
+						"Ad-hoc SQL SELECT for cohorts/custom filters NOT covered by searchPatients—always include LIMIT.",
 					inputSchema: z.object({
 						sql: z.string().describe("Valid SQL SELECT with LIMIT."),
 					}),
@@ -171,7 +273,7 @@ If the user asks to schedule a task, use the schedule tool.`,
 					},
 				}),
 			},
-			stopWhen: stepCountIs(6),
+			stopWhen: stepCountIs(12),
 			abortSignal: options?.abortSignal,
 		});
 
