@@ -66,6 +66,25 @@ function fileToDataUri(file: File): Promise<string> {
 	});
 }
 
+function sanitizeCoordinatorTagValue(raw: string): string {
+	return raw
+		.trim()
+		.replace(/\]/g, " ")
+		.replace(/\r?\n+/g, " ");
+}
+
+/** Prefix sent to model; avoids ] inside focus breaking the delimiter. */
+function prependCoordinatorPriority(focus: string, body: string): string {
+	const t = sanitizeCoordinatorTagValue(focus);
+	if (!t) return body;
+	return `[COORDINATOR_PRIORITY: ${t}]\n\n${body}`;
+}
+
+/** Hide machine tag from the user-visible bubble while keeping it on the wire. */
+function stripCoordinatorPriorityForDisplay(text: string): string {
+	return text.replace(/^\[COORDINATOR_PRIORITY:[^\]]+\]\s*\r?\n?/, "");
+}
+
 // ── Small components ──────────────────────────────────────────────────
 
 function ThemeToggle() {
@@ -264,6 +283,7 @@ function ToolPartView({
 function Chat() {
 	const [connected, setConnected] = useState(false);
 	const [input, setInput] = useState("");
+	const [coordinatorFocus, setCoordinatorFocus] = useState("");
 	const [showDebug, setShowDebug] = useState(false);
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [isDragging, setIsDragging] = useState(false);
@@ -435,14 +455,23 @@ function Chat() {
 
 	const send = useCallback(async () => {
 		const text = input.trim();
-		if ((!text && attachments.length === 0) || isStreaming) return;
+		const focusSanitized = sanitizeCoordinatorTagValue(coordinatorFocus);
+		const hasFocus = focusSanitized.length > 0;
+		if ((!text && attachments.length === 0 && !hasFocus) || isStreaming) return;
 		setInput("");
+
+		const outboundText = hasFocus
+			? prependCoordinatorPriority(coordinatorFocus, text)
+			: text;
 
 		const parts: Array<
 			| { type: "text"; text: string }
 			| { type: "file"; mediaType: string; url: string }
 		> = [];
-		if (text) parts.push({ type: "text", text });
+		const trimmedOutbound = outboundText.trim();
+		if (trimmedOutbound) {
+			parts.push({ type: "text", text: trimmedOutbound });
+		}
 
 		for (const att of attachments) {
 			const dataUri = await fileToDataUri(att.file);
@@ -454,7 +483,7 @@ function Chat() {
 
 		sendMessage({ role: "user", parts });
 		if (textareaRef.current) textareaRef.current.style.height = "auto";
-	}, [input, attachments, isStreaming, sendMessage]);
+	}, [input, coordinatorFocus, attachments, isStreaming, sendMessage]);
 
 	return (
 		<div
@@ -719,7 +748,15 @@ function Chat() {
 											onClick={() => {
 												sendMessage({
 													role: "user",
-													parts: [{ type: "text", text: prompt }]
+													parts: [
+														{
+															type: "text",
+															text: prependCoordinatorPriority(
+																coordinatorFocus,
+																prompt
+															)
+														}
+													]
 												});
 											}}
 										>
@@ -827,10 +864,12 @@ function Chat() {
 										if (!text) return null;
 
 										if (isUser) {
+											const visible = stripCoordinatorPriorityForDisplay(text);
+											if (!visible.trim()) return null;
 											return (
 												<div key={i} className="flex justify-end">
 													<div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md bg-kumo-contrast text-kumo-inverse leading-relaxed">
-														{text}
+														{visible}
 													</div>
 												</div>
 											);
@@ -879,6 +918,24 @@ function Chat() {
 							e.target.value = "";
 						}}
 					/>
+
+					<div className="block mb-2">
+						<label
+							htmlFor="coordinator-focus"
+							className="mb-1 block text-xs text-kumo-subtle"
+						>
+							Coordinator focus (optional)
+						</label>
+						<input
+							id="coordinator-focus"
+							type="text"
+							value={coordinatorFocus}
+							onChange={(e) => setCoordinatorFocus(e.target.value)}
+							placeholder='e.g. "Prioritize opioids + ED visits"'
+							disabled={!connected || isStreaming}
+							className="w-full px-3 py-2 text-sm rounded-lg border border-kumo-line bg-kumo-base text-kumo-default placeholder:text-kumo-inactive focus:outline-none focus:ring-1 focus:ring-kumo-accent"
+						/>
+					</div>
 
 					{attachments.length > 0 && (
 						<div className="flex gap-2 mb-2 flex-wrap">

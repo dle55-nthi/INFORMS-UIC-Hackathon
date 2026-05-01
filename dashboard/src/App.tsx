@@ -331,7 +331,11 @@ export default function App() {
 
 			<p className="note footer">
 				Example SQL in <code>src/App.tsx</code> — adjust LIMIT via the slider; all
-				queries include explicit LIMIT for the API cap.
+				queries include explicit LIMIT for the API cap.{" "}
+				<span style={{ opacity: 0.9 }}>
+					In the conversational agent demo, use prompts (and Coordinator focus
+					where available) to steer analysis angles — see repository README.
+				</span>
 			</p>
 		</>
 	);
