@@ -473,7 +473,10 @@ export default {
 			return new Response(null, { status: 204, headers: corsHeaders(request) });
 		}
 
-		if (path === "/api/health" && request.method === "GET") {
+		if (
+			(path === "/health" || path === "/api/health") &&
+			request.method === "GET"
+		) {
 			return jsonApi(
 				{
 					ok: true,
@@ -516,6 +519,7 @@ export default {
 		const routed = await routeAgentRequest(request, env);
 		if (routed) return routed;
 
-		return new Response("Not found", { status: 404 });
+		/** Static SPA + hashed bundles (vite `dist/client`) — required when Worker runs before assets. */
+		return env.ASSETS.fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
