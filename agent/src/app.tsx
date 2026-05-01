@@ -21,7 +21,7 @@ function displayUserText(raw: string) {
 
 export default function App() {
 	const [draft, setDraft] = useState("");
-	const [managerScope, setManagerScope] = useState<ManagerScope | null>(null);
+	const [managerScope, setManagerScope] = useState<ManagerScope>("administrative");
 	const [patientNameHint, setPatientNameHint] = useState("");
 	const [patientNameWarning, setPatientNameWarning] = useState("");
 
@@ -38,7 +38,7 @@ export default function App() {
 
 	function send() {
 		const text = draft.trim();
-		if (!text || !canChat || managerScope === null) return;
+		if (!text || !canChat) return;
 
 		if (managerScope === "specific_patient" && !patientNameHint.trim()) {
 			setPatientNameWarning(
@@ -54,102 +54,23 @@ export default function App() {
 		sendMessage({ role: "user", parts: [{ type: "text", text: body }] });
 	}
 
-	const patientNameMissing = managerScope === "specific_patient" && !patientNameHint.trim();
-	const sendDisabled = !canChat || managerScope === null || !draft.trim() || patientNameMissing;
+	const sendBlockedNeedsName = managerScope === "specific_patient" && !patientNameHint.trim();
+	const sendDisabled = !canChat || !draft.trim() || sendBlockedNeedsName;
 
 	return (
 		<main className="app">
 			<h2>Cost Explainer Agent</h2>
 			<p className="muted">
-				Pick how you&apos;re working first—scope is bundled with each message so the analyst stays
-				aligned.
+				The assistant searches <strong>patient_summary</strong>, can compare several patients, pulls
+				full history when needed, then answers follow-up questions in the same chat.
 			</p>
-
-			<section className="card mode-section" style={{ marginBottom: 12 }}>
-				<h3>How are you working today?</h3>
-				<div className="mode-grid">
-					<button
-						type="button"
-						className={`mode-option ${managerScope === "specific_patient" ? "selected" : ""}`}
-						onClick={() => {
-							setManagerScope("specific_patient");
-							setPatientNameWarning("");
-						}}
-						disabled={isStreaming}
-					>
-						<strong>Specific patient</strong>
-						<span>Deep-dive one person—cost drivers, encounters, meds, claims.</span>
-					</button>
-					<button
-						type="button"
-						className={`mode-option ${managerScope === "administrative" ? "selected" : ""}`}
-						onClick={() => {
-							setManagerScope("administrative");
-							setPatientNameWarning("");
-						}}
-						disabled={isStreaming}
-					>
-						<strong>Overall / admin</strong>
-						<span>Population view—rankings, cohorts, patterns across patients.</span>
-					</button>
-				</div>
-				{managerScope === "specific_patient" && (
-					<div style={{ marginTop: 12 }}>
-						{!patientNameHint.trim() ? (
-							<p className="patient-followup-prompt" style={{ marginBottom: 10 }}>
-								<strong>Please enter a patient name</strong>
-								<span className="muted" style={{ display: "block", fontWeight: 400, marginTop: 4 }}>
-									We need who you mean before pulling records (partial match is fine).
-								</span>
-							</p>
-						) : null}
-						<label
-							className="muted"
-							htmlFor="patient-hint"
-							style={{ display: "block", marginBottom: 6 }}
-						>
-							Patient name <span style={{ color: "#b91c1c" }}>(required)</span>
-						</label>
-						<input
-							id="patient-hint"
-							placeholder="e.g. Lindsay Brekke or Giovanni385 Paucek755"
-							value={patientNameHint}
-							onChange={(e) => {
-								setPatientNameHint(e.target.value);
-								setPatientNameWarning("");
-							}}
-							disabled={isStreaming}
-							aria-invalid={Boolean(patientNameWarning)}
-							aria-describedby={
-								managerScope === "specific_patient" ? "patient-hint-help" : undefined
-							}
-						/>
-						<p id="patient-hint-help" className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
-							Enter who you mean first. Names in this dataset often include numeric suffixes—partial
-							matches work.
-						</p>
-						{patientNameWarning ? <p className="form-warning">{patientNameWarning}</p> : null}
-					</div>
-				)}
-				{managerScope && (
-					<p className="scope-hint muted">
-						Selected:{" "}
-						<strong style={{ color: "#0f172a" }}>
-							{managerScope === "specific_patient" ? "Specific patient" : "Administrative overview"}
-						</strong>
-						. You can change this anytime; the next message carries the new scope.
-					</p>
-				)}
-			</section>
 
 			<section className="card messages">
 				{sortedMessages.length === 0 && (
 					<p className="muted" style={{ margin: 0 }}>
-						{managerScope === "specific_patient"
-							? "Enter the patient’s name in the field above, then describe what you want from their data in the box below."
-							: managerScope === "administrative"
-								? "Ask a population question—e.g. top spenders, high ED utilizers, or patients without care plans."
-								: "Choose a work mode above to get started."}
+						Try &quot;Find patients with Brekke in the name&quot;, &quot;top 10 ED + inpatient
+						costs&quot;, or &quot;compare two patients by ID&quot;—then ask deeper questions in the
+						same thread.
 					</p>
 				)}
 				{sortedMessages.map((m) => {
@@ -172,24 +93,18 @@ export default function App() {
 					<p className="patient-followup-prompt">
 						<strong>What do they want from that person&apos;s data?</strong>
 					</p>
-				) : managerScope === "specific_patient" ? (
-					<p className="patient-followup-prompt muted">
-						Enter a patient name in the section above first.
-					</p>
 				) : null}
 				<div className="row">
 					<textarea
 						rows={2}
 						placeholder={
-							managerScope === null
-								? "Select a work mode above to enable sending…"
-								: managerScope === "specific_patient"
-									? patientNameHint.trim()
-										? "e.g. Explain ED/inpatient cost drivers, list active conditions, or flag reducible spend…"
-										: "Available after you enter a patient name…"
-									: "Ask for rankings, aggregates, cohorts, or practice-wide patterns…"
+							managerScope === "specific_patient"
+								? patientNameHint.trim()
+									? "e.g. Explain ED/inpatient cost drivers, list active conditions, or flag reducible spend…"
+									: "Draft your question here—add their name under Optional scope, then Send."
+								: "Ask about costs, utilization, cohorts… or mention a patient by name."
 						}
-						disabled={isStreaming || managerScope === null || patientNameMissing}
+						disabled={isStreaming}
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
 						onKeyDown={(e) => {
@@ -203,6 +118,84 @@ export default function App() {
 						Send
 					</button>
 				</div>
+			</section>
+
+			<section className="card mode-section" style={{ marginTop: 12 }}>
+				<h3>Optional scope</h3>
+				<p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
+					Defaults to <strong>overall / admin</strong>. Pick <strong>specific patient</strong> when
+					you want every message tagged with one person&apos;s name.
+				</p>
+				<div className="mode-grid">
+					<button
+						type="button"
+						className={`mode-option ${managerScope === "specific_patient" ? "selected" : ""}`}
+						onClick={() => {
+							setManagerScope("specific_patient");
+							setPatientNameWarning("");
+						}}
+						disabled={isStreaming}
+					>
+						<strong>Specific patient</strong>
+						<span>Tag messages with one patient&apos;s name (field below).</span>
+					</button>
+					<button
+						type="button"
+						className={`mode-option ${managerScope === "administrative" ? "selected" : ""}`}
+						onClick={() => {
+							setManagerScope("administrative");
+							setPatientNameHint("");
+							setPatientNameWarning("");
+						}}
+						disabled={isStreaming}
+					>
+						<strong>Overall / admin</strong>
+						<span>Population summaries—no patient name gate.</span>
+					</button>
+				</div>
+				{managerScope === "specific_patient" && (
+					<div style={{ marginTop: 12 }}>
+						{!patientNameHint.trim() ? (
+							<p className="patient-followup-prompt" style={{ marginBottom: 10 }}>
+								<strong>Please enter a patient name</strong>
+								<span className="muted" style={{ display: "block", fontWeight: 400, marginTop: 4 }}>
+									Needed only while &quot;Specific patient&quot; is selected—partial matches are
+									fine.
+								</span>
+							</p>
+						) : null}
+						<label
+							className="muted"
+							htmlFor="patient-hint"
+							style={{ display: "block", marginBottom: 6 }}
+						>
+							Patient name <span style={{ color: "#b91c1c" }}>(required in this mode)</span>
+						</label>
+						<input
+							id="patient-hint"
+							placeholder="e.g. Lindsay Brekke or Giovanni385 Paucek755"
+							value={patientNameHint}
+							onChange={(e) => {
+								setPatientNameHint(e.target.value);
+								setPatientNameWarning("");
+							}}
+							disabled={isStreaming}
+							aria-invalid={Boolean(patientNameWarning)}
+							aria-describedby="patient-hint-help"
+						/>
+						<p id="patient-hint-help" className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+							Names often include numeric suffixes in this dataset.
+						</p>
+						{patientNameWarning ? <p className="form-warning">{patientNameWarning}</p> : null}
+					</div>
+				)}
+				<p className="scope-hint muted">
+					Selected:{" "}
+					<strong style={{ color: "#0f172a" }}>
+						{managerScope === "specific_patient" ? "Specific patient" : "Administrative overview"}
+					</strong>
+					. Change anytime; scope applies to your next Send.
+				</p>
 			</section>
 		</main>
 	);
