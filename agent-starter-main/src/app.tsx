@@ -48,22 +48,6 @@ interface Attachment {
   mediaType: string;
 }
 
-interface AuthenticatedPatient {
-  patient: string;
-  first: string;
-  last: string;
-  birthdate?: string;
-  gender?: string;
-  race?: string;
-  ethnicity?: string;
-  income?: number;
-  ed_inpatient_total_cost?: number;
-  ed_visits?: number;
-  inpatient_visits?: number;
-  chronic_condition_count?: number;
-  has_active_careplan?: number;
-}
-
 function createAttachment(file: File): Attachment {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

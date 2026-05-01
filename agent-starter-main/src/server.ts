@@ -82,49 +82,6 @@ export class ChatAgent extends AIChatAgent<Env> {
     await this.removeMcpServer(serverId);
   }
 
-  @callable()
-  async authenticatePatient(fullName: string) {
-    const cleaned = fullName.trim().toLowerCase();
-    const parts = cleaned.split(/\s+/).filter(Boolean);
-    const firstLike = parts[0] ?? cleaned;
-    const lastLike = parts.length > 1 ? parts[parts.length - 1] : "";
-
-    const searchSql = lastLike
-      ? `SELECT id AS patient, first, last, birthdate, gender, race, ethnicity, income,
-                ed_inpatient_total_cost, ed_visits, inpatient_visits,
-                chronic_condition_count, has_active_careplan
-         FROM patient_summary
-         WHERE LOWER(first) LIKE '%${firstLike.replace(/'/g, "''")}%'
-           AND LOWER(last) LIKE '%${lastLike.replace(/'/g, "''")}%'
-         ORDER BY ed_inpatient_total_cost DESC
-         LIMIT 3`
-      : `SELECT id AS patient, first, last, birthdate, gender, race, ethnicity, income,
-                ed_inpatient_total_cost, ed_visits, inpatient_visits,
-                chronic_condition_count, has_active_careplan
-         FROM patient_summary
-         WHERE LOWER(first) LIKE '%${firstLike.replace(/'/g, "''")}%'
-            OR LOWER(last) LIKE '%${firstLike.replace(/'/g, "''")}%'
-         ORDER BY ed_inpatient_total_cost DESC
-         LIMIT 3`;
-
-    const search = await this.runQuery(searchSql);
-    const matches = search.results ?? [];
-    if (!search.success || matches.length === 0) {
-      return {
-        success: false,
-        message: "No matching patient found for these credentials."
-      };
-    }
-
-    const patient = matches[0];
-    return {
-      success: true,
-      message: "Patient credentials accepted.",
-      patient,
-      alternatives: matches.slice(1)
-    };
-  }
-
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
     const mcpTools = this.mcp.getAITools();
     const workersai = createWorkersAI({ binding: this.env.AI });
@@ -156,8 +113,7 @@ Rules:
 - Before recommending action, summarize findings and ask the coordinator to confirm
 - Synthea names often include numeric suffixes (example: Giovanni385 Paucek755). When matching by name, use LOWER(...) with LIKE, not exact equality
 - For person-specific questions, call findPatientCandidates first to resolve the correct patient record before deeper analysis
-- If the user message includes an authenticated patient context with PATIENT ID, use that record first
-- For authenticated sessions, call getPatientFullHistory early, then explain drivers of cost and actionable reductions
+- Resolve patients by ID or by name via queryDatabase (LIKE/LOWER). For named patients, call getPatientFullHistory after resolving the patient ID
 - Always drill into encounters, medications, procedures, and financial transactions before concluding
 - Identify cost concentration (what categories drive most spend) and flag potentially avoidable utilization patterns
 - Produce a plain-language briefing suitable for care managers, then invite concise follow-up questions for deeper drill-down
@@ -201,7 +157,7 @@ If the user asks to schedule a task, use the schedule tool.`,
         getPatientFullHistory: tool({
           description:
             "Get full medical and utilization history for one patient ID. " +
-            "Use after name resolution or authenticated patient context.",
+            "Use after resolving the patient's ID from patient_summary.",
           inputSchema: z.object({
             patientId: z
               .string()

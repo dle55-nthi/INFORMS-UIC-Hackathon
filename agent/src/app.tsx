@@ -95,6 +95,14 @@ export default function App() {
 				</div>
 				{managerScope === "specific_patient" && (
 					<div style={{ marginTop: 12 }}>
+						{!patientNameHint.trim() ? (
+							<p className="patient-followup-prompt" style={{ marginBottom: 10 }}>
+								<strong>Please enter a patient name</strong>
+								<span className="muted" style={{ display: "block", fontWeight: 400, marginTop: 4 }}>
+									We need who you mean before pulling records (partial match is fine).
+								</span>
+							</p>
+						) : null}
 						<label
 							className="muted"
 							htmlFor="patient-hint"
@@ -162,11 +170,11 @@ export default function App() {
 			<section className="card" style={{ marginTop: 12 }}>
 				{managerScope === "specific_patient" && patientNameHint.trim() ? (
 					<p className="patient-followup-prompt">
-						<strong>What do you want from this person&apos;s data?</strong>
+						<strong>What do they want from that person&apos;s data?</strong>
 					</p>
 				) : managerScope === "specific_patient" ? (
 					<p className="patient-followup-prompt muted">
-						Enter a patient name above—then tell us what you want from their record.
+						Enter a patient name in the section above first.
 					</p>
 				) : null}
 				<div className="row">
