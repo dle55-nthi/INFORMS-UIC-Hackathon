@@ -90,12 +90,17 @@ export class ChatAgent extends AIChatAgent<Env> {
 			model: workersai("@cf/moonshotai/kimi-k2.6", {
 				sessionAffinity: this.sessionAffinity
 			}),
-			system: `You are a healthcare data analyst helping care coordinators at a value-based primary care practice.
+			system: `You are a conversational healthcare analyst for care coordinators and manager-level leaders. Stay in plain language unless the coordinator asks for technical detail.
+
+Your job in every substantive turn is this triad:
+1) **Claim history** — Investigate paid/transfer/adjustment lines over time and by setting (use \`claims_transactions\`; join key is PATIENTID, not PATIENT). Describe sequence and magnitude in words, not raw dumps.
+2) **Cost drivers** — Explain what concentrates spend for the person or cohort: inpatient vs ED vs ambulatory patterns, repeat high-cost events, medication or procedure load, and how that ties to claims and encounter costs.
+3) **Plain-language briefing** — Lead with a short executive-style summary anyone can skim; put supporting numbers and tables after. Avoid jargon unless you define it once.
 
 Security (critical): This demo uses PUBLIC read-only synthetic data. NEVER ask for passwords, SSO, MFA, verification codes, API keys, or "patient credentials". Never label name lookup as a log-in—use neutral language only.
 "Asking the coordinator to confirm" means confirming your analysis textually—not authenticating anyone.
 
-Workflow (multi-step — show judges your reasoning chain):
+Workflow (multi-step — show your reasoning chain):
 1. State a concise hypothesis aligned to the coordinator's goal (one sentence).
 2. Run targeted SQL or the minimum tools to test it. After each database tool, cite (a) plain-language SQL intent — what you counted, filtered, or joined — and (b) row count or fact count from THAT tool output (length of results, or numeric fields shown). Never invent counts not present in tool output.
 3. Interpret: confirm, refine, or reject the hypothesis against the numbers. If results are empty, contradictory, or off-target, optionally run ONE follow-up query with a clearly stated revised intent ("first query assumed X; follow-up checks Y").
@@ -103,11 +108,11 @@ Workflow (multi-step — show judges your reasoning chain):
 
 Insights (dataset-grounded, not generic chat):
 Every substantive assistant reply MUST end with:
-**Insights (from data)** — 2–4 bullets, each tied to concrete values, categories, or row patterns from tool output you just obtained (quotes or paraphrases of fields are fine).
+**Insights (from data)** — 2–4 bullets, each tied to concrete values, categories, or row patterns from tool output you just obtained (quotes or paraphrases of fields are fine). At least one bullet should relate to dollars, claims patterns, or cost concentration when finance data was used.
 **Open questions / risks** — 1–3 bullets: data gaps, ambiguous joins, cohort LIMIT caveats, or what a sensible next SQL would clarify.
 
 Human steering — reduce guesswork early:
-If the VERY FIRST coordinator message is vague and does NOT already imply BOTH (population/cohort vs specific patient) AND (cost drivers vs utilization/visit burden), ask EXACTLY ONE combined scoping question before heavy querying — e.g. "Are we steering toward a cohort or a named patient, and should we optimize for dollar drivers or ED/IP visit patterns?" Skip this if either dimension is clearly implied.
+If the VERY FIRST coordinator message is vague and does NOT already imply BOTH (population/cohort vs specific patient) AND (claim-line / dollar story vs utilization/visit-story), ask EXACTLY ONE combined scoping question before heavy querying — e.g. "Should we zoom in on one patient or a cohort, and do you want the story framed around claim lines and payments or around visits and settings?" Skip this if either dimension is clearly implied.
 
 Coordinator priority:
 User messages may begin with \`[COORDINATOR_PRIORITY: ...]\` (injected by the app). When that tag is present and non-empty, treat its text as the coordinator's authoritative steering bias until they change topic — reflect it in hypotheses, SQL focus, cited metrics, and **Insights** bullets.
@@ -121,7 +126,7 @@ Key tables:
 - encounters: filter by ENCOUNTERCLASS (emergency, inpatient, ambulatory, urgentcare, wellness)
 - conditions: active when STOP IS NULL - includes clinical and SDOH conditions
 - observations: PRAPARE social screenings (housing, food, transport, stress)
-- claims_transactions: financial data - join on PATIENTID (not PATIENT)
+- claims_transactions: claim-line financial history (amount, payments, adjustments, transfers) - join on PATIENTID (not PATIENT)
 - medications: active when STOP IS NULL
 - careplans: active when STOP IS NULL
 
@@ -134,7 +139,7 @@ Rules:
 - Synthea names often include numeric suffixes (example: Giovanni385 Paucek755). When matching by name, use LOWER(...) with LIKE, not exact equality
 - Named patients: findPatientCandidates or one name-resolving queryDatabase, then getPatientFullHistory once you have id
 - Drill into encounters/meds/claims detail only when needed for the manager’s question—not by default every time
-- Identify cost concentration (what categories drive most spend) and flag potentially avoidable utilization patterns
+- Tie cost drivers to claim history when both are available: e.g. which service types or time windows dominate spend
 - Produce a plain-language briefing suitable for care managers, then invite concise follow-up questions for deeper drill-down
 
 ${getSchedulePrompt({ date: new Date() })}
@@ -150,8 +155,8 @@ If the user asks to schedule a task, use the schedule tool.`,
 
 				queryDatabase: tool({
 					description:
-						"Execute a SQL SELECT query against the healthcare dataset. " +
-						"Use patient_summary as your starting point. " +
+						"Execute a SQL SELECT against the healthcare dataset for claim history, costs, encounters, meds, conditions, etc. " +
+						"For dollar and claim-line investigation use claims_transactions joined via PATIENTID; for rollups compare with patient_summary. " +
 						"IMPORTANT: claims_transactions joins on PATIENTID, not PATIENT.",
 					inputSchema: z.object({
 						sql: z
@@ -175,8 +180,8 @@ If the user asks to schedule a task, use the schedule tool.`,
 
 				getPatientFullHistory: tool({
 					description:
-						"Get full medical and utilization history for one patient ID. " +
-						"Use after resolving the patient's ID from patient_summary.",
+						"Load one patient's clinical, encounter, and claim-line history in one call (includes recent claims_transactions rows). " +
+						"Use after resolving the patient's ID from patient_summary for a briefing or deep dive.",
 					inputSchema: z.object({
 						patientId: z
 							.string()
@@ -259,8 +264,8 @@ If the user asks to schedule a task, use the schedule tool.`,
 
 				findPatientCandidates: tool({
 					description:
-						"Find likely patient matches from a human-entered name. " +
-						"Use this first when a user asks about a specific person.",
+						"Find likely patient matches from a human-entered name for claims/cost investigations. " +
+						"Use first when discussing a specific person before drilling into claims and drivers.",
 					inputSchema: z.object({
 						name: z
 							.string()
@@ -433,11 +438,84 @@ If the user asks to schedule a task, use the schedule tool.`,
 	}
 }
 
+function corsHeaders(request: Request): Headers {
+	const h = new Headers();
+	const origin = request.headers.get("Origin");
+	h.set(
+		"Access-Control-Allow-Origin",
+		origin && origin.length > 0 ? origin : "*"
+	);
+	h.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
+	h.set(
+		"Access-Control-Allow-Headers",
+		"Content-Type, Authorization, X-Requested-With"
+	);
+	h.set("Vary", "Origin");
+	return h;
+}
+
+function jsonApi(
+	payload: Record<string, unknown>,
+	request: Request,
+	status = 200
+): Response {
+	const h = corsHeaders(request);
+	h.set("Content-Type", "application/json; charset=utf-8");
+	return new Response(JSON.stringify(payload), { status, headers: h });
+}
+
 export default {
 	async fetch(request: Request, env: Env) {
-		return (
-			(await routeAgentRequest(request, env)) ||
-			new Response("Not found", { status: 404 })
-		);
+		const url = new URL(request.url);
+		const path = url.pathname;
+
+		if (request.method === "OPTIONS" && path.startsWith("/api")) {
+			return new Response(null, { status: 204, headers: corsHeaders(request) });
+		}
+
+		if (path === "/api/health" && request.method === "GET") {
+			return jsonApi(
+				{
+					ok: true,
+					service: "healthcare-manager-assistant",
+					dataPipeline:
+						"Durable Object chat agent queries https://uic-hackathon-data.christian-7f4.workers.dev/query (SELECT-only). Local data/ mirrors schema docs.",
+					routes: {
+						"GET /": "SPA assets (vite build)",
+						"GET /api/health": "deployment check",
+						"POST /api/chat":
+							"metadata / integration hint (streaming chat runs via Workers Agents in the SPA)",
+						"/agents/*": "Workers Agents (WebSocket/streaming assistant)"
+					}
+				},
+				request,
+				200
+			);
+		}
+
+		if (path === "/api/chat" && request.method === "POST") {
+			let acknowledged: unknown;
+			try {
+				acknowledged = await request.json();
+			} catch {
+				acknowledged = null;
+			}
+			return jsonApi(
+				{
+					message:
+						"Interactive chat streams in this app’s SPA using Workers Agents. Use the composer on GET /.",
+					constraints:
+						"The assistant retrieves healthcare context via queryDatabase SQL tools plus Workers AI; there is no separate REST SSE in this Workers Agents template.",
+					receivedPayload: acknowledged
+				},
+				request,
+				200
+			);
+		}
+
+		const routed = await routeAgentRequest(request, env);
+		if (routed) return routed;
+
+		return new Response("Not found", { status: 404 });
 	}
 } satisfies ExportedHandler<Env>;

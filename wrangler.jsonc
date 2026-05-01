@@ -1,0 +1,25 @@
+/**
+ * Root deployment config for CI and `npx wrangler versions upload`.
+ * Requires: `npm install` inside agent-starter-main, then `npm run build`
+ * from the repo root (bundles Worker + SPA to agent-starter-main/dist/).
+ */
+{
+	"name": "healthcare-manager-assistant",
+	"main": "agent-starter-main/dist/healthcare_manager_assistant/index.js",
+	"no_bundle": true,
+	"compatibility_date": "2026-05-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"jsx_factory": "React.createElement",
+	"jsx_fragment": "React.Fragment",
+	"rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
+	"ai": { "binding": "AI", "remote": true },
+	"assets": {
+		"directory": "./agent-starter-main/dist/client",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/agents/*", "/oauth/*", "/api/*"]
+	},
+	"durable_objects": {
+		"bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
+	},
+	"migrations": [{ "new_sqlite_classes": ["ChatAgent"], "tag": "v1" }]
+}

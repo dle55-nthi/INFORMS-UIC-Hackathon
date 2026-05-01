@@ -117,11 +117,11 @@ function ThemeToggle() {
 function healthcareToolSubtitle(toolName: string): string {
 	switch (toolName) {
 		case "queryDatabase":
-			return "Searching patient dataset…";
+			return "Querying claims & cost data…";
 		case "findPatientCandidates":
-			return "Matching patient records…";
+			return "Finding patient matches…";
 		case "getPatientFullHistory":
-			return "Loading full patient history…";
+			return "Loading claims + clinical timeline…";
 		case "scheduleTask":
 			return "Scheduling follow-up…";
 		default:
@@ -520,11 +520,11 @@ function Chat() {
 				<div className="max-w-3xl mx-auto flex items-center justify-between">
 					<div className="flex items-center gap-3">
 						<h1 className="text-lg font-semibold text-kumo-default">
-							<span className="mr-2">🏥</span>Cost Explainer
+							<span className="mr-2">🏥</span>Claims & cost briefing
 						</h1>
 						<Badge variant="secondary">
 							<ChatCircleDotsIcon size={12} weight="bold" className="mr-1" />
-							Patient Cost Analysis
+							Conversational agent
 						</Badge>
 					</div>
 					<div className="flex items-center gap-3">
@@ -745,14 +745,14 @@ function Chat() {
 					{messages.length === 0 && (
 						<Empty
 							icon={<ChatCircleDotsIcon size={32} />}
-							title="Start a conversation"
+							title="Ask about claim history, cost drivers, or a plain-language briefing"
 							contents={
 								<div className="flex flex-wrap justify-center gap-2">
 									{[
-										"Why is this patient so expensive?",
-										"Break down inpatient vs ED cost drivers",
-										"What costs are most reducible in the next 90 days?",
-										"Summarize barriers and care-plan opportunities"
+										"Walk me through this patient’s recent claim history",
+										"What are the top cost drivers for this member?",
+										"Give me a 3-bullet manager briefing on why spend is high",
+										"Compare ED vs inpatient dollars and what the claims show"
 									].map((prompt) => (
 										<Button
 											key={prompt}
@@ -1031,7 +1031,7 @@ function Chat() {
 							placeholder={
 								attachments.length > 0
 									? "Add a message or send images..."
-									: "Send a message..."
+									: "Ask about claims, cost drivers, or a briefing…"
 							}
 							disabled={!connected || isStreaming}
 							rows={1}

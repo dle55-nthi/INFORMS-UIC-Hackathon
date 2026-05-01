@@ -8,9 +8,13 @@
 		"build": "npm run build --prefix agent-starter-main",
 		"deploy": "npm run deploy --prefix agent-starter-main",
 		"upload": "npm run versions:upload --prefix agent-starter-main",
+		"upload:root": "npm run build --prefix agent-starter-main && wrangler versions upload --config ./wrangler.jsonc",
 		"dev": "npm run dev --prefix agent-starter-main",
 		"dashboard:dev": "npm run dev --prefix dashboard",
 		"dashboard:build": "npm run build --prefix dashboard"
+	},
+	"devDependencies": {
+		"wrangler": "4.86.0"
 	},
 	"engines": {
 		"node": ">=18"
