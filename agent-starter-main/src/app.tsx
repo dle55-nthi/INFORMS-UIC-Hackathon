@@ -93,6 +93,47 @@ function ThemeToggle() {
 	);
 }
 
+// ── Status / tool labels ─────────────────────────────────────────────
+
+function healthcareToolSubtitle(toolName: string): string {
+	switch (toolName) {
+		case "queryDatabase":
+			return "Searching patient dataset…";
+		case "findPatientCandidates":
+			return "Matching patient records…";
+		case "getPatientFullHistory":
+			return "Loading full patient history…";
+		case "scheduleTask":
+			return "Scheduling follow-up…";
+		default:
+			return `Working (${toolName})…`;
+	}
+}
+
+function deriveActivityLabel(
+	messages: UIMessage[],
+	assistantStatus: string
+): string | null {
+	if (assistantStatus === "submitted") return "Sending your question…";
+	if (assistantStatus !== "streaming") return null;
+
+	const last = messages.at(-1);
+	if (!last || last.role !== "assistant") return "Connecting…";
+
+	for (const part of last.parts) {
+		if (!isToolUIPart(part)) continue;
+		const n = getToolName(part);
+		if (part.state === "input-available" || part.state === "input-streaming") {
+			return healthcareToolSubtitle(n);
+		}
+		if ("approval" in part && part.state === "approval-requested") {
+			return "Approve the step above to continue…";
+		}
+	}
+
+	return "Generating answer…";
+}
+
 // ── Tool rendering ────────────────────────────────────────────────────
 
 function ToolPartView({
@@ -207,7 +248,7 @@ function ToolPartView({
 					<div className="flex items-center gap-2">
 						<GearIcon size={14} className="text-kumo-inactive animate-spin" />
 						<Text size="xs" variant="secondary">
-							Running {toolName}...
+							{healthcareToolSubtitle(toolName)}
 						</Text>
 					</div>
 				</Surface>
@@ -320,24 +361,11 @@ function Chat() {
 		stop,
 		status
 	} = useAgentChat({
-		agent,
-		onToolCall: async (event) => {
-			if (
-				"addToolOutput" in event &&
-				event.toolCall.toolName === "getUserTimezone"
-			) {
-				event.addToolOutput({
-					toolCallId: event.toolCall.toolCallId,
-					output: {
-						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-						localTime: new Date().toLocaleTimeString()
-					}
-				});
-			}
-		}
+		agent
 	});
 
 	const isStreaming = status === "streaming" || status === "submitted";
+	const activityBanner = deriveActivityLabel(messages, status);
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -652,6 +680,21 @@ function Chat() {
 					</div>
 				</div>
 			</header>
+
+			{activityBanner ? (
+				<div className="shrink-0 border-b border-kumo-accent/35 bg-kumo-accent/12 px-5 py-2.5">
+					<div className="max-w-3xl mx-auto flex items-center gap-2">
+						<GearIcon
+							size={15}
+							className="text-kumo-accent animate-spin shrink-0"
+							aria-hidden
+						/>
+						<Text size="sm" bold>
+							{activityBanner}
+						</Text>
+					</div>
+				</div>
+			) : null}
 
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto">
