@@ -157,6 +157,34 @@ button:disabled {
 	border-top: 1px solid #e2e8f0;
 }
 
+.options-details > summary {
+	cursor: pointer;
+	font-size: 13px;
+	color: #64748b;
+	list-style-position: outside;
+	user-select: none;
+}
+
+.working-placeholder {
+	padding: 12px 14px;
+	border-radius: 10px;
+	background: #e2e8f0;
+	color: #334155;
+	font-size: 14px;
+	align-self: flex-start;
+	animation: pulse-opacity 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-opacity {
+	0%,
+	100% {
+		opacity: 0.72;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
 .form-warning {
 	color: #b91c1c;
 	font-size: 13px;
